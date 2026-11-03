@@ -105,8 +105,8 @@ def compute_sector_timeseries(sector_key: str, start: str | None = None, end: st
 
     for label, days in periods.items():
         if len(cap_aligned) > days:
-            cap_ret = (cap_aligned.iloc[-1] / cap_aligned.iloc[-days] - 1.0) * 100.0
-            eq_ret = (eq_compounded.iloc[-1] / eq_compounded.iloc[-days] - 1.0) * 100.0
+            cap_ret = (cap_aligned.iloc[-1] / cap_aligned.iloc[-1 - days] - 1.0) * 100.0
+            eq_ret = (eq_compounded.iloc[-1] / eq_compounded.iloc[-1 - days] - 1.0) * 100.0
             spread = eq_ret - cap_ret
         else:
             cap_ret, eq_ret, spread = 0.0, 0.0, 0.0
@@ -133,7 +133,8 @@ def compute_sector_timeseries(sector_key: str, start: str | None = None, end: st
 
 def compute_all_sectors_summary(start: str | None = None, end: str | None = None) -> pd.DataFrame:
     """
-    Computes summary performance and EW-vs-MCAP spread for all official sectors.
+    Computes summary performance, EW-vs-MCAP spread (1D, 1W, 1M, 3M, 6M, 1Y),
+    and internal breadth metrics for all official sectors.
     """
     rows = []
     for sec in OFFICIAL_SECTORS:
@@ -144,17 +145,27 @@ def compute_all_sectors_summary(start: str | None = None, end: str | None = None
         rows.append({
             "Sector": res["sector_name"],
             "Type": sec["type"],
+            "1D Cap (%)": rs["1D"]["cap_return"],
+            "1D EW (%)": rs["1D"]["eq_return"],
+            "1D Spread (%)": rs["1D"]["spread_ew_mcap"],
             "1W Cap (%)": rs["1W (5D)"]["cap_return"],
+            "1W EW (%)": rs["1W (5D)"]["eq_return"],
             "1W Spread (%)": rs["1W (5D)"]["spread_ew_mcap"],
             "1M Cap (%)": rs["1M (21D)"]["cap_return"],
+            "1M EW (%)": rs["1M (21D)"]["eq_return"],
             "1M Spread (%)": rs["1M (21D)"]["spread_ew_mcap"],
             "3M Cap (%)": rs["3M (63D)"]["cap_return"],
+            "3M EW (%)": rs["3M (63D)"]["eq_return"],
             "3M Spread (%)": rs["3M (63D)"]["spread_ew_mcap"],
             "6M Cap (%)": rs["6M (126D)"]["cap_return"],
+            "6M EW (%)": rs["6M (126D)"]["eq_return"],
             "6M Spread (%)": rs["6M (126D)"]["spread_ew_mcap"],
             "1Y Cap (%)": rs["1Y (252D)"]["cap_return"],
+            "1Y EW (%)": rs["1Y (252D)"]["eq_return"],
             "1Y Spread (%)": rs["1Y (252D)"]["spread_ew_mcap"],
-            "Breadth (% > 50 DMA)": res["latest_breadth"],
+            "% > 20 DMA": res.get("latest_breadth_20", res["latest_breadth"]),
+            "% > 50 DMA": res["latest_breadth"],
+            "% > 200 DMA": res.get("latest_breadth_200", res["latest_breadth"]),
             "EW/MCAP Ratio": res["latest_ratio"]
         })
     return pd.DataFrame(rows)
