@@ -5,18 +5,22 @@ Interactive Dash application implementing 5 comprehensive tabs:
 2. Advance-Decline & McClellan Momentum
 3. DMA Participation & High-Low Extremes
 4. Volume Conviction & Breadth Thrusts
-5. Sector Rotation & Participation (Sector Indices)
+5. Sector Rotation & Participation (Sector Indices & Quadrant Scatter Plot)
 """
 
 import dash
-from dash import dcc, html, dash_table
-from dash.dependencies import Input, Output
-import plotly.graph_objs as go
-from plotly.subplots import make_subplots
 import pandas as pd
+import plotly.graph_objs as go
+from dash import dash_table, dcc, html
+from dash.dependencies import Input, Output
+from plotly.subplots import make_subplots
 
 from market_breadth import MarketBreadthEngine
-from market_breadth.sectors import OFFICIAL_SECTORS, compute_sector_timeseries, compute_all_sectors_summary
+from market_breadth.sectors import (
+    OFFICIAL_SECTORS,
+    compute_all_sectors_summary,
+    compute_sector_timeseries,
+)
 
 # Initialize Dash App
 app = dash.Dash(__name__, title="Nifty 500 Market Breadth Engine", suppress_callback_exceptions=True)
@@ -28,7 +32,7 @@ engine = MarketBreadthEngine(universe="nifty500")
 try:
     engine.load_data(start="2023-01-01", adjusted=True)
     breadth_df = engine.compute_breadth_report()
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     print(f"Warning: Could not load live/cached nseuniverse data: {e}. Generating fallback synthetic data.")
     dates = pd.date_range("2023-01-01", periods=250, freq="B")
     breadth_df = pd.DataFrame(index=dates)
@@ -103,7 +107,6 @@ def render_tab_content(tab_value):
         regime = "BULLISH (Army Leading)" if last.get("eq_cap_ratio", 1.0) >= 1.0 else "DEFENSIVE (Generals Only)"
         
         return html.Div([
-            # KPI Cards Grid
             html.Div(
                 style={"display": "grid", "gridTemplateColumns": "repeat(auto-fit, minmax(180px, 1fr))", "gap": "15px", "marginBottom": "20px"},
                 children=[
@@ -116,7 +119,6 @@ def render_tab_content(tab_value):
                     kpi_card("Hindenburg Omen", "ACTIVE" if last.get('hindenburg_omen', 0) == 1 else "Clear", "#f43f5e" if last.get('hindenburg_omen', 0) == 1 else "#4ade80"),
                 ]
             ),
-            # Main Chart
             html.Div(
                 style={"backgroundColor": "#1e293b", "padding": "15px", "borderRadius": "8px", "boxShadow": "0 4px 6px rgba(0,0,0,0.3)"},
                 children=[
@@ -168,7 +170,7 @@ def render_tab_content(tab_value):
                         data=summary_df.to_dict("records"),
                         columns=[{"name": i, "id": i} for i in summary_df.columns],
                         style_header={"backgroundColor": "#0f172a", "color": "#38bdf8", "fontWeight": "bold"},
-                        style_cell={"backgroundColor": "#1e293b", "color": "#f8fafc", "border": "1px solid #334155", "textAlign": "center", "fontSize": "13px", "padding": "8px"},
+                        style_cell={"backgroundColor": "#1e293b", "color": "#f8fafc", "border": "1px solid #334155", "textAlign": "center", "fontSize": "12px", "padding": "6px"},
                         style_data_conditional=[
                             {
                                 "if": {"column_id": [c for c in summary_df.columns if "Spread" in c], "filter_query": f"{{{c}}} > 0"},
@@ -179,6 +181,13 @@ def render_tab_content(tab_value):
                         page_size=15,
                         sort_action="native"
                     )
+                ]
+            ),
+            # Sector Quadrant Scatter Plot
+            html.Div(
+                style={"backgroundColor": "#1e293b", "padding": "15px", "borderRadius": "8px", "marginBottom": "20px"},
+                children=[
+                    dcc.Graph(figure=create_sector_quadrant_figure(summary_df))
                 ]
             ),
             html.Div(
@@ -214,48 +223,48 @@ def kpi_card(title, value, color):
 
 def create_cockpit_figure(df):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=[0.7, 0.3],
-                        subplot_title=("Cap-Weighted vs Equal-Weighted Index Trajectory & Ratio", "20-Day Army vs Generals ROC Spread Histogram"))
+                        subplot_titles=("Cap-Weighted vs Equal-Weighted Index Trajectory & Ratio", "20-Day Army vs Generals ROC Spread Histogram"))
     
     if "cap_weighted_close" in df.columns and "equal_weighted_close" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["cap_weighted_close"], name="Cap-Weighted Index", line=dict(color="#38bdf8", width=2)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["equal_weighted_close"], name="Equal-Weighted Index", line=dict(color="#4ade80", width=2)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["cap_weighted_close"], name="Cap-Weighted Index", line={"color": "#38bdf8", "width": 2}), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["equal_weighted_close"], name="Equal-Weighted Index", line={"color": "#4ade80", "width": 2}), row=1, col=1)
     
     if "eq_cap_roc20_spread" in df.columns:
         colors = ["#4ade80" if val >= 0 else "#f43f5e" for val in df["eq_cap_roc20_spread"]]
         fig.add_trace(go.Bar(x=df.index, y=df["eq_cap_roc20_spread"], name="20D ROC Spread (EW - MCAP)", marker_color=colors), row=2, col=1)
 
-    fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=600, margin=dict(l=40, r=40, t=40, b=40))
+    fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=600, margin={"l": 40, "r": 40, "t": 40, "b": 40})
     return fig
 
 
 def create_ad_figure(df):
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.4, 0.3, 0.3],
-                        subplot_title=("Cumulative Normalized A/D Line", "Ratio-Adjusted McClellan Oscillator", "McClellan Summation Index"))
+                        subplot_titles=("Cumulative Normalized A/D Line", "Ratio-Adjusted McClellan Oscillator", "McClellan Summation Index"))
     
     if "cumulative_ad_ratio" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["cumulative_ad_ratio"], name="Cumulative A/D Ratio", line=dict(color="#38bdf8", width=2)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["cumulative_ad_ratio"], name="Cumulative A/D Ratio", line={"color": "#38bdf8", "width": 2}), row=1, col=1)
     
     if "mcclellan_oscillator_ratio" in df.columns:
         colors = ["#4ade80" if val >= 0 else "#f43f5e" for val in df["mcclellan_oscillator_ratio"]]
         fig.add_trace(go.Bar(x=df.index, y=df["mcclellan_oscillator_ratio"], name="McClellan Oscillator (Ratio)", marker_color=colors), row=2, col=1)
     
     if "mcclellan_summation_ratio" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["mcclellan_summation_ratio"], name="McClellan Summation (Ratio)", line=dict(color="#fbbf24", width=2)), row=3, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["mcclellan_summation_ratio"], name="McClellan Summation (Ratio)", line={"color": "#fbbf24", "width": 2}), row=3, col=1)
 
-    fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=700, margin=dict(l=40, r=40, t=40, b=40))
+    fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=700, margin={"l": 40, "r": 40, "t": 40, "b": 40})
     return fig
 
 
 def create_dma_figure(df):
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.4, 0.3, 0.3],
-                        subplot_title=("Tri-horizon DMA Participation Ribbon (% > 20/50/200 SMA)", "Net New 52-Week Highs / Lows", "High-Low Logic Index & Hindenburg Omen"))
+                        subplot_titles=("Tri-horizon DMA Participation Ribbon (% > 20/50/200 SMA)", "Net New 52-Week Highs / Lows", "High-Low Logic Index & Hindenburg Omen"))
     
     if "pct_above_sma_20" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["pct_above_sma_20"], name="% > 20 SMA", line=dict(color="#38bdf8", width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["pct_above_sma_20"], name="% > 20 SMA", line={"color": "#38bdf8", "width": 1.5}), row=1, col=1)
     if "pct_above_sma_50" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["pct_above_sma_50"], name="% > 50 SMA", line=dict(color="#4ade80", width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["pct_above_sma_50"], name="% > 50 SMA", line={"color": "#4ade80", "width": 1.5}), row=1, col=1)
     if "pct_above_sma_200" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["pct_above_sma_200"], name="% > 200 SMA", line=dict(color="#a855f7", width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["pct_above_sma_200"], name="% > 200 SMA", line={"color": "#a855f7", "width": 1.5}), row=1, col=1)
     
     fig.add_hline(y=80, line_dash="dash", line_color="#f43f5e", row=1, col=1, annotation_text="Overbought (80%)")
     fig.add_hline(y=15, line_dash="dash", line_color="#fbbf24", row=1, col=1, annotation_text="Washout (15%)")
@@ -264,31 +273,78 @@ def create_dma_figure(df):
         fig.add_trace(go.Bar(x=df.index, y=df["net_new_highs"], name="Net New Highs (NH - NL)", marker_color="#38bdf8"), row=2, col=1)
 
     if "high_low_logic_index" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["high_low_logic_index"], name="High-Low Logic Index", line=dict(color="#fbbf24", width=2)), row=3, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["high_low_logic_index"], name="High-Low Logic Index", line={"color": "#fbbf24", "width": 2}), row=3, col=1)
 
-    fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=700, margin=dict(l=40, r=40, t=40, b=40))
+    fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=700, margin={"l": 40, "r": 40, "t": 40, "b": 40})
     return fig
 
 
 def create_volume_figure(df):
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.34, 0.33, 0.33],
-                        subplot_title=("Up/Down Volume Ratio & 9:1 Impulse Days", "Arms Index (TRIN)", "Zweig Breadth Thrust (EMA10)"))
+                        subplot_titles=("Up/Down Volume Ratio & 9:1 Impulse Days", "Arms Index (TRIN)", "Zweig Breadth Thrust (EMA10)"))
     
     if "up_down_volume_ratio" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["up_down_volume_ratio"], name="Up/Down Volume Ratio", line=dict(color="#38bdf8", width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["up_down_volume_ratio"], name="Up/Down Volume Ratio", line={"color": "#38bdf8", "width": 1.5}), row=1, col=1)
     fig.add_hline(y=1.0, line_dash="dot", line_color="#94a3b8", row=1, col=1)
 
     if "trin" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["trin"], name="TRIN", line=dict(color="#fbbf24", width=1.5)), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["trin"], name="TRIN", line={"color": "#fbbf24", "width": 1.5}), row=2, col=1)
     fig.add_hline(y=1.0, line_dash="dash", line_color="#4ade80", row=2, col=1, annotation_text="Neutral (1.0)")
     fig.add_hline(y=2.0, line_dash="dash", line_color="#f43f5e", row=2, col=1, annotation_text="Washout (2.0)")
 
     if "zweig_thrust_ema10" in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df["zweig_thrust_ema10"], name="Zweig Thrust EMA10", line=dict(color="#a855f7", width=2)), row=3, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["zweig_thrust_ema10"], name="Zweig Thrust EMA10", line={"color": "#a855f7", "width": 2}), row=3, col=1)
     fig.add_hline(y=0.615, line_dash="dash", line_color="#4ade80", row=3, col=1, annotation_text="Thrust Trigger (0.615)")
     fig.add_hline(y=0.40, line_dash="dash", line_color="#f43f5e", row=3, col=1, annotation_text="Oversold Zone (0.40)")
 
-    fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=700, margin=dict(l=40, r=40, t=40, b=40))
+    fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=700, margin={"l": 40, "r": 40, "t": 40, "b": 40})
+    return fig
+
+
+def create_sector_quadrant_figure(summary_df: pd.DataFrame):
+    if summary_df.empty or "1M Cap (%)" not in summary_df.columns or "1M Spread (%)" not in summary_df.columns:
+        fig = go.Figure()
+        fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=500)
+        return fig
+
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        x=summary_df["1M Cap (%)"],
+        y=summary_df["1M Spread (%)"],
+        mode="text+markers",
+        text=summary_df["Sector"],
+        marker={
+            "size": summary_df["Breadth (% > 50 DMA)"].clip(lower=10) * 0.4,
+            "color": summary_df["1M Spread (%)"],
+            "colorscale": "Viridis",
+            "showscale": True,
+            "colorbar": {"title": "1M Spread (%)"}
+        },
+        hovertemplate="<b>%{text}</b><br>1M Cap Return: %{x:.2f}%<br>1M Spread (EW-MCAP): %{y:.2f}%<extra></extra>"
+    ))
+
+    fig.add_vline(x=0, line_dash="dash", line_color="#94a3b8")
+    fig.add_hline(y=0, line_dash="dash", line_color="#94a3b8")
+
+    max_x = max(abs(summary_df["1M Cap (%)"].max()), abs(summary_df["1M Cap (%)"].min()), 5)
+    max_y = max(abs(summary_df["1M Spread (%)"].max()), abs(summary_df["1M Spread (%)"].min()), 2)
+
+    fig.add_annotation(x=max_x*0.6, y=max_y*0.6, text="<b>Broad Leadership</b><br>(Army + Generals)", showarrow=False, font={"color": "#4ade80", "size": 11})
+    fig.add_annotation(x=max_x*0.6, y=-max_y*0.6, text="<b>Narrow Rally</b><br>(Generals Only)", showarrow=False, font={"color": "#f43f5e", "size": 11})
+    fig.add_annotation(x=-max_x*0.6, y=max_y*0.6, text="<b>Broadening Base</b><br>(Early Rotation)", showarrow=False, font={"color": "#38bdf8", "size": 11})
+    fig.add_annotation(x=-max_x*0.6, y=-max_y*0.6, text="<b>Broad Laggard</b><br>(Distribution)", showarrow=False, font={"color": "#fbbf24", "size": 11})
+
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#1e293b",
+        plot_bgcolor="#1e293b",
+        height=500,
+        title="Sector Rotation Quadrant (1M Cap Return vs EW-MCAP Spread)",
+        xaxis_title="1M Cap-Weighted Return (%)",
+        yaxis_title="1M Participation Spread (EW - MCAP %)",
+        margin={"l": 40, "r": 40, "t": 50, "b": 40}
+    )
     return fig
 
 
@@ -298,18 +354,36 @@ def create_volume_figure(df):
 )
 def update_sector_drilldown(sector_key):
     res = compute_sector_timeseries(sector_key, start="2023-01-01")
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=[0.7, 0.3],
-                        subplot_title=(f"{res.get('sector_name', sector_key)}: Cap-Weighted vs Equal-Weighted Trajectory", "Internal Breadth (% > 50 DMA)"))
+    fig = make_subplots(
+        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08,
+        row_heights=[0.4, 0.3, 0.3],
+        subplot_titles=(
+            f"{res.get('sector_name', sector_key)}: Cap-Weighted vs Equal-Weighted Trajectory",
+            "EW / MCAP Ratio & Relative Performance",
+            "Internal Sector DMA Breadth (% > 20/50/200 DMA)"
+        )
+    )
     
     if "cap_close" in res and "eq_close" in res:
-        fig.add_trace(go.Scatter(x=res["dates"], y=res["cap_close"], name="Cap-Weighted Index", line=dict(color="#38bdf8", width=2)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=res["dates"], y=res["eq_close"], name="Equal-Weighted Index", line=dict(color="#4ade80", width=2)), row=1, col=1)
+        cap_norm = res["cap_close"] / (res["cap_close"].iloc[0] + 1e-6) * 100.0
+        eq_norm = res["eq_close"] / (res["eq_close"].iloc[0] + 1e-6) * 100.0
+        fig.add_trace(go.Scatter(x=res["dates"], y=cap_norm, name="Cap-Weighted (Norm 100)", line={"color": "#38bdf8", "width": 2}), row=1, col=1)
+        fig.add_trace(go.Scatter(x=res["dates"], y=eq_norm, name="Equal-Weighted (Norm 100)", line={"color": "#4ade80", "width": 2}), row=1, col=1)
 
+    if "eq_cap_ratio" in res:
+        fig.add_trace(go.Scatter(x=res["dates"], y=res["eq_cap_ratio"], name="EW / MCAP Ratio", line={"color": "#fbbf24", "width": 2}), row=2, col=1)
+        fig.add_hline(y=1.0, line_dash="dash", line_color="#94a3b8", row=2, col=1)
+
+    if "pct_above_20" in res:
+        fig.add_trace(go.Scatter(x=res["dates"], y=res["pct_above_20"], name="% > 20 DMA", line={"color": "#38bdf8", "width": 1.2}), row=3, col=1)
     if "pct_above_50" in res:
-        fig.add_trace(go.Scatter(x=res["dates"], y=res["pct_above_50"], name="% > 50 DMA", line=dict(color="#fbbf24", width=1.5)), row=2, col=1)
-        fig.add_hline(y=50, line_dash="dash", line_color="#94a3b8", row=2, col=1)
+        fig.add_trace(go.Scatter(x=res["dates"], y=res["pct_above_50"], name="% > 50 DMA", line={"color": "#4ade80", "width": 1.2}), row=3, col=1)
+    if "pct_above_200" in res:
+        fig.add_trace(go.Scatter(x=res["dates"], y=res["pct_above_200"], name="% > 200 DMA", line={"color": "#a855f7", "width": 1.2}), row=3, col=1)
+    
+    fig.add_hline(y=50, line_dash="dash", line_color="#94a3b8", row=3, col=1)
 
-    fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=600, margin=dict(l=40, r=40, t=40, b=40))
+    fig.update_layout(template="plotly_dark", paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", height=750, margin={"l": 40, "r": 40, "t": 40, "b": 40})
     return fig
 
 
