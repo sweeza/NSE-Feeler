@@ -142,12 +142,8 @@ def test_app_figure_builders_and_callbacks():
     fig5 = create_sector_quadrant_figure(mock_summary)
     assert fig5 is not None
 
-    try:
-        fig_drill = update_sector_drilldown("nifty50")
-        assert fig_drill is not None
-    except Exception as e:  # noqa: BLE001
-        # Expected in mock test environment if callbacks need specific Dash context
-        print(f"Callback caught: {e}")
+    fig_drill = update_sector_drilldown("nifty50")
+    assert fig_drill is not None
 
     tab_render = render_tab_content("tab-sectors")
     assert tab_render is not None
